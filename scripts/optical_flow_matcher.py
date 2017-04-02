@@ -4,8 +4,11 @@ import numpy as np
 import cv2
 
 import rospy
+from std_msgs.msg import Header
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+
+from ocular.msg import KeypointMotion
 
 
 class OpticalFlowMatcher(object):
@@ -24,6 +27,12 @@ class OpticalFlowMatcher(object):
             image_topic,
             Image,
             self.new_image_callback
+        )
+
+        self.pub_keypoint_motion = rospy.Publisher(
+            'keypoint_motion',
+            KeypointMotion,
+            queue_size=10
         )
 
         self.feature_params = None
@@ -90,7 +99,7 @@ class OpticalFlowMatcher(object):
             **self.lk_params
         )
 
-        self.get_interframe_motion(
+        self.publish_interframe_motion(
             self.last_frame_features,
             new_frame_matched_features,
             status,
@@ -132,9 +141,22 @@ class OpticalFlowMatcher(object):
 
         return strong_corners
 
-    def get_interframe_motion(self, last_features, new_features, status, err):
+    def publish_interframe_motion(self, last_features, new_features, status, err):
         self.good_old = last_features[status == 1]
         self.good_new = new_features[status == 1]
+
+        # TODO: clean up these features before publishing
+
+        self.pub_keypoint_motion.publish(
+            header=Header(
+                stamp=rospy.Time.now(),  # TODO: use camera image time
+                frame_id='tango_camera_2d'
+            ),
+            prev_x=self.good_old[:, 0],
+            prev_y=self.good_old[:, 1],
+            cur_x=self.good_new[:, 0],
+            cur_y=self.good_new[:, 1]
+        )
 
     def run(self, debug=False):
         """ The main run loop"""
