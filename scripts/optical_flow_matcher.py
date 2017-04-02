@@ -13,7 +13,7 @@ class OpticalFlowMatcher(object):
     Optical Flow Matcher for ROS image data
     Reference: http://docs.opencv.org/3.2.0/d7/d8b/tutorial_py_lucas_kanade.html
     """
-    def __init__(self, image_topic):
+    def __init__(self, image_topic, feature_detector='FAST'):
         super(OpticalFlowMatcher, self).__init__()
 
         rospy.init_node('optical_flow_matcher')
@@ -26,13 +26,25 @@ class OpticalFlowMatcher(object):
             self.new_image_callback
         )
 
-        # params for ShiTomasi corner detection
-        self.feature_params = dict(
-            maxCorners=200,
-            qualityLevel=0.3,
-            minDistance=7,
-            blockSize=7
-        )
+        self.feature_params = None
+
+        if feature_detector == 'FAST':
+            self.get_features = self.get_features_fast
+            # Initiate FAST detector with default values
+            self.fast = cv2.FastFeatureDetector_create()
+        elif feature_detector == 'GOOD':
+            self.get_features = self.get_features_good
+            # params for ShiTomasi 'GOOD' corner detection
+            self.feature_params = dict(
+                maxCorners=200,
+                qualityLevel=0.3,
+                minDistance=7,
+                blockSize=7
+            )
+        else:
+            raise Exception(
+                '{} feature detector not implemented'.format(feature_detector)
+            )
 
         # Parameters for lucas kanade optical flow
         self.lk_params = dict(
@@ -97,7 +109,17 @@ class OpticalFlowMatcher(object):
         # we got to make sure that we have features too
         self.last_frame_features = self.get_features(frame_gray)
 
-    def get_features(self, frame_gray):
+    def get_features_fast(self, frame_gray):
+        """
+        Use the FAST feature detection algorithm to find features
+        """
+        keypoints = self.fast.detect(frame_gray, None)
+
+        return np.float32(
+            [kp.pt for kp in keypoints]
+        ).reshape(-1, 1, 2)
+
+    def get_features_good(self, frame_gray):
         """
         Jianbo Shi and Carlo Tomasi wrote a paper in 1994 called
         "Good features to track", so now it's called that in OpenCV.
@@ -110,7 +132,7 @@ class OpticalFlowMatcher(object):
 
         return strong_corners
 
-    def get_interframe_motion(self, last_features, new_features, status, error):
+    def get_interframe_motion(self, last_features, new_features, status, err):
         self.good_old = last_features[status == 1]
         self.good_new = new_features[status == 1]
 
@@ -118,7 +140,7 @@ class OpticalFlowMatcher(object):
         """ The main run loop"""
 
         # Create some random colors
-        color = np.random.randint(0, 255, (100, 3))
+        color = np.random.randint(0, 255, (10000, 3))
 
         r = rospy.Rate(100)
         while not rospy.is_shutdown():
