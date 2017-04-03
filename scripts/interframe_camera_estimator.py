@@ -56,6 +56,13 @@ class InterframeCameraEstimator(object):
 
         self.accumulated_pose = make_empty_pose()
 
+        self.base_transformation_mat = np.matrix([
+            [1, 0, 0, 0],
+            [0, 0, 0, 0],
+            [1, 0, 0, 0],
+            [1, 0, 0, 0]
+        ], np.float32)
+
     def new_camera_intrinsics_callback(self, new_camera_info):
         """
         Store the camera intrinsics.
@@ -65,6 +72,8 @@ class InterframeCameraEstimator(object):
         self.k_mat = np.matrix(
             np.array(self.camera_intrinsics.K).reshape((3, 3))
         )
+
+        self.k_inv = self.k_mat.I
 
     def new_motion_callback(self, new_motion_msg):
         """
@@ -89,6 +98,13 @@ class InterframeCameraEstimator(object):
         f_mat = self.calculate_fundamental_matrix(previous_kp, current_kp)
 
         camera_matrix, R_mat, t_mat = self.manually_calculate_pose(f_mat)
+
+        error_amount = triangulated = self.triangulation(
+            previous_kp, current_kp,
+            self.base_transformation_mat, camera_matrix
+        )
+
+        print error_amount
 
         # get quaternion from rotation matrix
         tf_rot = np.identity(4)
@@ -126,7 +142,81 @@ class InterframeCameraEstimator(object):
             )
         )
 
+    def triangulation(self, kp_a, kp_b, cam_a, cam_b):
+        """
+        Returns a point cloud
+        """
+        reproj_error = []
+        point_cloud = []
+        for i in range(len(kp_a)):
+            # convert to normalized homogeneous coordinates
+            kp = kp_a[i]
+            u = np.array([kp[0], kp[1], 1.0])
+
+            mat_um = self.k_inv * np.matrix(u).T
+
+            u = np.array(mat_um[:, 0]) # check this
+
+            kp_ = kp_b[i]
+            u_ = np.array([kp_[0], kp_[1], 1.0])
+
+            mat_um_ = self.k_inv * np.matrix(u_).T
+
+            u_ = np.array(mat_um_[:, 0]) # check this
+
+            # now we triangulate!
+            x = self.linear_ls_triangulation(
+                u, cam_a, u_, cam_b
+            )
+
+            point_cloud.append(x)
+
+            # calculate reprojection error
+
+            # reproject to other img
+            x_pt_img = (self.k_mat * cam_b * x).flatten()
+            x_pt_img_ = np.array([
+                x_pt_img[0] / x_pt_img[2],
+                x_pt_img[1] / x_pt_img[2]
+            ])
+
+            # check error in matched keypoint
+            reproj_error.append(
+                np.norm(x_pt_img_ - kp_)
+            )
+
+        return reproj_error, point_cloud
+
+    def linear_ls_triangulation(self, point_a, cam_a, point_b, cam_b):
+        """
+        Python version of
+        Mastering Opencv With Practical Computer Vision Projects'
+        LST implementation on page 144
+        """
+        # build A matrix
         # import pdb; pdb.set_trace()
+
+        point_a = point_a.flatten()
+        point_b = point_b.flatten()
+
+        mat_a = np.matrix([
+            [point_a[0]*cam_a[2, 0]-cam_a[0, 0], point_a[0]*cam_a[2, 1]-cam_a[0, 1], point_a[0]*cam_a[2, 2]-cam_a[0, 2]],
+            [point_a[1]*cam_a[2, 0]-cam_a[1, 0], point_a[1]*cam_a[2, 1]-cam_a[1, 1], point_a[1]*cam_a[2, 2]-cam_a[1, 2]],
+            [point_b[0]*cam_b[2, 0]-cam_b[0, 0], point_b[0]*cam_b[2, 1]-cam_b[0, 1], point_b[0]*cam_b[2, 2]-cam_b[0, 2]],
+            [point_b[1]*cam_b[2, 0]-cam_b[1, 0], point_b[1]*cam_b[2, 1]-cam_b[1, 1], point_b[1]*cam_b[2, 2]-cam_b[1, 2]]
+        ])
+        # build B vector
+        mat_b = np.matrix([
+            [-(point_a[0]*cam_a[2, 3]-cam_a[0, 3])],
+            [-(point_a[1]*cam_a[2, 3]-cam_a[1, 3])],
+            [-(point_b[0]*cam_b[2, 3]-cam_b[0, 3])],
+            [-(point_b[1]*cam_b[2, 3]-cam_b[1, 3])]
+        ])
+
+        # solve for X
+        x = cv2.solve(mat_a, mat_b, None, cv2.DECOMP_SVD)
+
+        return x
 
     def calculate_fundamental_matrix(self, previous_pts, current_pts):
         fundamental_matrix, mask = cv2.findFundamentalMat(
