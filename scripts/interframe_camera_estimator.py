@@ -79,6 +79,49 @@ class InterframeCameraEstimator(object):
 
         f_mat = self.calculate_fundamental_matrix(previous_kp, current_kp)
 
+        if False:
+            camera_matrix, R_mat, t_mat = self.manually_calculate_pose(f_mat)
+        else:
+            pass
+        # get quaternion from rotation matrix
+        tf_rot = np.identity(4)
+        tf_rot[0:3, 0:3] = R_mat
+
+        quat = tf.transformations.quaternion_from_matrix(tf_rot)
+
+        self.pub_pose.publish(
+            header=Header(
+                stamp=rospy.Time.now(),  # TODO: use camera image time
+                frame_id='map'
+            ),
+            pose=Pose(
+                Point(
+                    0, 0, 0
+                ),
+                Quaternion(
+                    *quat
+                )
+            )
+        )
+
+        # import pdb; pdb.set_trace()
+
+    def calculate_fundamental_matrix(self, previous_pts, current_pts):
+        fundamental_matrix, mask = cv2.findFundamentalMat(
+            previous_pts,
+            current_pts,
+            cv2.FM_RANSAC
+        )
+        if fundamental_matrix.shape == (1, 1):
+            # dang, no fundamental matrix found
+            raise Exception('No fundamental matrix found')
+        elif fundamental_matrix.shape[0] > 3:
+            # more than one matrix found, just pick the first
+            fundamental_matrix = fundamental_matrix[0:3, 0:3]
+
+        return np.matrix(fundamental_matrix)
+
+    def manually_calculate_pose(self, f_mat):
         # get essential matrix from the fundamental
         # I am assuming that only one calibration matrix is fine here, because
         # only one type of camera is being used.
@@ -109,37 +152,7 @@ class InterframeCameraEstimator(object):
 
         camera_matrix = np.column_stack((R_mat, t_mat))
 
-        # get quaternion from rotation matrix
-        tf_rot = np.identity(4)
-        tf_rot[0:3, 0:3] = R_mat
-
-        quat = tf.transformations.quaternion_from_matrix(tf_rot)
-
-        self.pub_pose.publish(
-            header=Header(
-                stamp=rospy.Time.now(),  # TODO: use camera image time
-                frame_id='map'
-            ),
-            pose=Pose(
-                Point(
-                    0, 0, 0
-                ),
-                Quaternion(
-                    *quat
-                )
-            )
-        )
-
-        # import pdb; pdb.set_trace()
-
-    def calculate_fundamental_matrix(self, previous_pts, current_pts):
-        fundamental_matrix, mask = cv2.findFundamentalMat(
-            previous_pts,
-            current_pts,
-            cv2.FM_RANSAC
-        )
-
-        return np.matrix(fundamental_matrix)
+        return camera_matrix, R_mat, t_mat
 
     def run(self):
         """ The main run loop"""

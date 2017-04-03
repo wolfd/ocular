@@ -16,7 +16,7 @@ class OpticalFlowMatcher(object):
     Optical Flow Matcher for ROS image data
     Reference: http://docs.opencv.org/3.2.0/d7/d8b/tutorial_py_lucas_kanade.html
     """
-    def __init__(self, image_topic, feature_detector='GOOD'):
+    def __init__(self, image_topic, feature_detector='FAST'):
         super(OpticalFlowMatcher, self).__init__()
 
         rospy.init_node('optical_flow_matcher')
@@ -41,6 +41,8 @@ class OpticalFlowMatcher(object):
             self.get_features = self.get_features_fast
             # Initiate FAST detector with default values
             self.fast = cv2.FastFeatureDetector_create()
+
+            self.fast.setThreshold(20)
         elif feature_detector == 'GOOD':
             self.get_features = self.get_features_good
             # params for ShiTomasi 'GOOD' corner detection
@@ -142,8 +144,8 @@ class OpticalFlowMatcher(object):
         return strong_corners
 
     def publish_interframe_motion(self, last_features, new_features, status, err):
-        self.good_old = last_features[status == 1]
-        self.good_new = new_features[status == 1]
+        self.good_old = last_features[(status == 1) & (err < 12.0)]
+        self.good_new = new_features[(status == 1) & (err < 12.0)]
 
         # TODO: clean up these features before publishing
 
@@ -210,4 +212,4 @@ if __name__ == '__main__':
         'tango/camera/fisheye_1/image_rect'
     )
 
-    of_matcher.run(debug=False)
+    of_matcher.run(debug=True)
