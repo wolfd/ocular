@@ -1,0 +1,8 @@
+<launch>
+  <!-- Keypoint generation -->
+  <node name="optical_flow_matcher" pkg="ocular" type="optical_flow_matcher.py" output="screen">
+  </node>
+  <!-- Camera interframe delta pose generation -->
+  <node name="interframe_camera_estimator" pkg="ocular" type="interframe_camera_estimator.py" output="screen">
+  </node>
+</launch>
