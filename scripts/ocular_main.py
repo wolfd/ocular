@@ -8,7 +8,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from sensor_msgs.msg import Imu, PointCloud2, LaserScan, Image, CameraInfo
 from dynamic_reconfigure.server import Server
 
-#from ocular.cfg import ocularconfConfig as dynserv
+from ocular.cfg import ocularconfConfig as dynserv
 
 rospy.init_node('ocular')
 
