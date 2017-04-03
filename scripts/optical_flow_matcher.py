@@ -16,7 +16,7 @@ class OpticalFlowMatcher(object):
     Optical Flow Matcher for ROS image data
     Reference: http://docs.opencv.org/3.2.0/d7/d8b/tutorial_py_lucas_kanade.html
     """
-    def __init__(self, image_topic, feature_detector='FAST'):
+    def __init__(self, image_topic, feature_detector='GOOD'):
         super(OpticalFlowMatcher, self).__init__()
 
         rospy.init_node('optical_flow_matcher')
@@ -210,4 +210,4 @@ if __name__ == '__main__':
         'tango/camera/fisheye_1/image_rect'
     )
 
-    of_matcher.run(debug=True)
+    of_matcher.run(debug=False)
