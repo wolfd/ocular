@@ -13,6 +13,13 @@ from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
 from ocular.msg import KeypointMotion
 
 
+def make_empty_pose():
+    return Pose(
+        Point(0, 0, 0),
+        Quaternion(0, 0, 0, 1)
+    )
+
+
 class InterframeCameraEstimator(object):
     """
     Takes interframe keypoint motion and generates a camera matrix from it
@@ -47,6 +54,8 @@ class InterframeCameraEstimator(object):
 
         self.camera_intrinsics = None
 
+        self.accumulated_pose = make_empty_pose()
+
     def new_camera_intrinsics_callback(self, new_camera_info):
         """
         Store the camera intrinsics.
@@ -79,15 +88,30 @@ class InterframeCameraEstimator(object):
 
         f_mat = self.calculate_fundamental_matrix(previous_kp, current_kp)
 
-        if False:
-            camera_matrix, R_mat, t_mat = self.manually_calculate_pose(f_mat)
-        else:
-            pass
+        camera_matrix, R_mat, t_mat = self.manually_calculate_pose(f_mat)
+
         # get quaternion from rotation matrix
         tf_rot = np.identity(4)
         tf_rot[0:3, 0:3] = R_mat
 
         quat = tf.transformations.quaternion_from_matrix(tf_rot)
+
+        old_quat = self.accumulated_pose.orientation
+
+        new_quat = tf.transformations.quaternion_multiply(
+            [old_quat.x, old_quat.y, old_quat.z, old_quat.w],
+            quat
+        )
+
+        normalized_new_quat = tf.transformations.quaternion_from_euler(
+            *tf.transformations.euler_from_quaternion(new_quat)
+        )
+
+        print normalized_new_quat
+
+        self.accumulated_pose.orientation = Quaternion(
+            *normalized_new_quat
+        )
 
         self.pub_pose.publish(
             header=Header(
@@ -98,9 +122,7 @@ class InterframeCameraEstimator(object):
                 Point(
                     0, 0, 0
                 ),
-                Quaternion(
-                    *quat
-                )
+                self.accumulated_pose.orientation
             )
         )
 
@@ -112,7 +134,8 @@ class InterframeCameraEstimator(object):
             current_pts,
             cv2.FM_RANSAC
         )
-        if fundamental_matrix.shape == (1, 1):
+
+        if fundamental_matrix is None or fundamental_matrix.shape == (1, 1):
             # dang, no fundamental matrix found
             raise Exception('No fundamental matrix found')
         elif fundamental_matrix.shape[0] > 3:
