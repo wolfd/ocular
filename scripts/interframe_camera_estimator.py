@@ -7,8 +7,9 @@ import rospy
 import tf
 
 from std_msgs.msg import Header
-from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import CameraInfo, PointCloud
 from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
+from geometry_msgs.msg import Point32
 
 from ocular.msg import KeypointMotion
 
@@ -49,6 +50,12 @@ class InterframeCameraEstimator(object):
         self.pub_pose = rospy.Publisher(
             'interframe_pose',
             PoseStamped,
+            queue_size=10
+        )
+
+        self.pub_point_cloud = rospy.Publisher(
+            'interframe_point_cloud',
+            PointCloud,
             queue_size=10
         )
 
@@ -99,12 +106,22 @@ class InterframeCameraEstimator(object):
 
         camera_matrix, R_mat, t_mat = self.manually_calculate_pose(f_mat)
 
-        error_amount = triangulated = self.triangulation(
+        error_amount, triangulated = self.triangulation(
             previous_kp, current_kp,
             self.base_transformation_mat, camera_matrix
         )
 
-        print error_amount
+        # print np.linalg.norm(np.array(error_amount))
+        for p in triangulated:
+            print p
+
+        self.pub_point_cloud.publish(
+            header=Header(
+                stamp=rospy.Time.now(),  # TODO: use camera image time
+                frame_id='map'
+            ),
+            points=[Point32(p[0], p[1], p[2]) for p in triangulated]
+        )
 
         # get quaternion from rotation matrix
         tf_rot = np.identity(4)
@@ -155,26 +172,30 @@ class InterframeCameraEstimator(object):
 
             mat_um = self.k_inv * np.matrix(u).T
 
-            u = np.array(mat_um[:, 0]) # check this
+            u = np.array(mat_um[:, 0])
 
             kp_ = kp_b[i]
             u_ = np.array([kp_[0], kp_[1], 1.0])
 
             mat_um_ = self.k_inv * np.matrix(u_).T
 
-            u_ = np.array(mat_um_[:, 0]) # check this
+            u_ = np.array(mat_um_[:, 0])
 
             # now we triangulate!
             x = self.linear_ls_triangulation(
                 u, cam_a, u_, cam_b
             )
 
-            point_cloud.append(x)
+            point_cloud.append(x.flatten())
 
             # calculate reprojection error
 
             # reproject to other img
-            x_pt_img = (self.k_mat * cam_b * x).flatten()
+            x_for_camera = np.matrix(
+                np.append(x, [[1.0]], axis=0)
+            )
+
+            x_pt_img = np.array(self.k_mat * cam_b * x_for_camera).flatten()
             x_pt_img_ = np.array([
                 x_pt_img[0] / x_pt_img[2],
                 x_pt_img[1] / x_pt_img[2]
@@ -182,7 +203,7 @@ class InterframeCameraEstimator(object):
 
             # check error in matched keypoint
             reproj_error.append(
-                np.norm(x_pt_img_ - kp_)
+                np.linalg.norm(x_pt_img_ - kp_)
             )
 
         return reproj_error, point_cloud
@@ -214,7 +235,7 @@ class InterframeCameraEstimator(object):
         ])
 
         # solve for X
-        x = cv2.solve(mat_a, mat_b, None, cv2.DECOMP_SVD)
+        _, x = cv2.solve(mat_a, mat_b, None, cv2.DECOMP_SVD)
 
         return x
 
