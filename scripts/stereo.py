@@ -99,7 +99,7 @@ if __name__ == '__main__':
     dataset = pykitti.odometry(
         '/home/wolf/kitti/dataset',
         '00',
-        frame_range=range(1872, 2034, 5)
+        frame_range=range(0, 300, 3)
     )
 
     dataset.load_calib()
@@ -122,6 +122,18 @@ if __name__ == '__main__':
         speckleWindowSize=100,
         speckleRange=32
     )
+
+    initial_position = np.array([0., 0., 0., 1.])
+    initial_transform = np.matrix([
+        [1., 0., 0., 0.],
+        [0., 1., 0., 0.],
+        [0., 0., 1., 0.],
+        [0., 0., 0., 1.]
+    ])
+
+    current_transform = initial_transform
+
+    path = []
 
     last_points = None
     for pair in dataset.gray:
@@ -155,6 +167,19 @@ if __name__ == '__main__':
             # make pts integers for easy indexing
             last_pts_i = last_pts.astype(np.uint32)
             now_pts_i = now_pts.astype(np.uint32)
+
+
+            out_points = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
+            out_gray = last_sift_left.image[last_pts_i[:, 1], last_pts_i[:, 0]]
+            out_file = 'out-sift-0.ply'
+            write_ply(out_file, out_points, out_gray)
+
+
+            out_points = points[now_pts_i[:, 1], now_pts_i[:, 0]]
+            out_gray = left[now_pts_i[:, 1], now_pts_i[:, 0]]
+            out_file = 'out-sift-1.ply'
+            write_ply(out_file, out_points, out_gray)
+
             # get the 3D coordinates of the matched features
             last_3d_coords = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
             now_3d_coords = points[now_pts_i[:, 1], now_pts_i[:, 0]]
@@ -164,18 +189,32 @@ if __name__ == '__main__':
                 now_3d_coords
             )
 
-            print(np.round(out, decimals=2))
+            affine_transform = np.concatenate((out, [[0, 0, 0, 1]]))
 
-        mask = disp > disp.min()
-        out_points = points[mask]
-        out_gray = left[mask]
+            current_transform = np.dot(affine_transform, current_transform)
+
+            new_position = np.dot(current_transform, initial_position)
+
+            path.append(new_position)
+            print(new_position)
+
+            break
+
+
+       
 
         last_points = points
         last_sift_left = sift_left
         last_sift_right = sift_right
         
-        # out_file = 'out.ply'
-        # write_ply(out_file, out_points, out_gray)
+        mask = disp > disp.min()
+        out_points = points[mask]
+        out_gray = left[mask]
+        out_file = 'out.ply'
+        write_ply(out_file, out_points, out_gray)
+
+
+
 
         # features = bucket_features(left, left.shape[1], left.shape[0], 100, 100, 20)        # use OpenCV to calculate optical flow
         # new_frame_matched_features, status, error = cv2.calcOpticalFlowPyrLK(
@@ -186,3 +225,18 @@ if __name__ == '__main__':
         #     **self.lk_params
         # )
 
+    from mpl_toolkits.mplot3d import axes3d
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    np_path = np.array(path).reshape(-1, 4)
+
+    X = np_path[:, 0]
+    Y = np_path[:, 1]
+    Z = np_path[:, 2]
+
+    ax.plot_wireframe(X, Y, Z)
+
+    plt.show() 
