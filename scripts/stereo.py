@@ -24,8 +24,8 @@ if __name__ == '__main__':
 
     dataset = pykitti.odometry(
         '/home/wolf/kitti/dataset',
-        '00',
-        frame_range=range(85, 430, 3)
+        '06',
+        frame_range=range(0, 1100, 1)
     )
 
     dataset.load_calib()
