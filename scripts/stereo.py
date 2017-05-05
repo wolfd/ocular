@@ -38,6 +38,10 @@ if __name__ == '__main__':
 
 
     cam = dataset.calib.K_cam0
+
+    focal_d = cam[0, 0] # focal distance
+    principal_point = [cam[0, 2], cam[1, 2]]
+
     dist_b = dataset.calib.b_gray
 
     cam_left = np.concatenate((cam, np.matrix([0, 0, 0]).T), axis=1)
@@ -88,50 +92,42 @@ if __name__ == '__main__':
     real_poses = np.array(dataset.T_w_cam0)[dataset.frame_range]
     pose_index = 0
 
-    last_points = None
+    last_sift_left = None
     for pair in dataset.gray:
-        print('computing disparity')
-
         left = np.uint8(pair.left * 255.)
         right = np.uint8(pair.right * 255.)
 
         sift_left = SIFTImage(left)
         sift_right = SIFTImage(right)
 
-        disp = stereo.compute(
-            left,
-            right
-        ).astype(np.float32) / 16.0
-
-        calibration_matrix = dataset.calib.K_cam0 # left gray camera (they're all the same here)
-
-        points = cv2.reprojectImageTo3D(disp, Q)
-
-        if last_points is not None:
+        if last_sift_left is not None:
+            print('doing math')
             last_pts, now_pts = last_sift_left.correspondences(sift_left)
 
-            # make pts integers for easy indexing
-            last_pts_i = last_pts.astype(np.uint32)
-            now_pts_i = now_pts.astype(np.uint32)
+            # do everything.
+            E, mask = cv2.findEssentialMat(
+                last_pts,
+                now_pts,
+                cam,
+                cv2.RANSAC,
+                0.999,
+                1.0
+            )
+            if E is None or E.shape == (1, 1):
+                # dang, no essential matrix found
+                raise Exception('No essential matrix found')
+            elif E.shape[0] > 3:
+                # more than one matrix found, just pick the first
+                E = E[0:3, 0:3]
 
-            if DEBUG_SIFT_3D:
-                out_points = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
-                out_gray = last_sift_left.image[last_pts_i[:, 1], last_pts_i[:, 0]]
-                out_file = 'out-sift-0.ply'
-                write_ply(out_file, out_points, out_gray)
+            _, ret_R, ret_t, mask = cv2.recoverPose(
+                E,
+                now_pts,
+                last_pts,
+                cam
+            )
 
-
-                out_points = points[now_pts_i[:, 1], now_pts_i[:, 0]]
-                out_gray = left[now_pts_i[:, 1], now_pts_i[:, 0]]
-                out_file = 'out-sift-1.ply'
-                write_ply(out_file, out_points, out_gray)
-
-            # get the 3D coordinates of the matched features
-            last_3d_coords = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
-            now_3d_coords = points[now_pts_i[:, 1], now_pts_i[:, 0]]
-            ret_R, ret_t = rigid_transform_3D(last_3d_coords[-50:], now_3d_coords[-50:])
-
-            cur_t = cur_t + np.dot(cur_rot, ret_t)
+            cur_t = cur_t + np.dot(cur_rot, ret_t).T
             cur_rot = np.dot(ret_R, cur_rot)
 
             current_transform = np.concatenate((cur_rot, cur_t.T), axis=1)
@@ -146,20 +142,8 @@ if __name__ == '__main__':
 
             path.append(cur_t.reshape(-1, 3))
 
-
-       
-
-        last_points = points
         last_sift_left = sift_left
         last_sift_right = sift_right
-        
-        if DEBUG_STEREO_3D:
-            mask = disp > disp.min()
-            out_points = points[mask]
-            out_gray = left[mask]
-            out_file = 'out.ply'
-            write_ply(out_file, out_points, out_gray)
-
 
     from mpl_toolkits.mplot3d import axes3d
     import matplotlib.pyplot as plt
@@ -182,7 +166,8 @@ if __name__ == '__main__':
     RY = real_poses[:, 1]
     RZ = real_poses[:, 2]
 
-    ax.plot_wireframe(RZ, RY, RX)
+    # ax.plot_wireframe(RZ, RY, RX)
+    ax.plot_wireframe(RX, RY, RZ)
 
     max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max() / 2.0
 
