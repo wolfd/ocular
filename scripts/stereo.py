@@ -24,7 +24,7 @@ if __name__ == '__main__':
     dataset = pykitti.odometry(
         '/home/wolf/kitti/dataset',
         '00',
-        frame_range=range(0, 500, 2)
+        frame_range=range(0, 100, 2)
     )
 
     dataset.load_calib()
@@ -66,24 +66,6 @@ if __name__ == '__main__':
         speckleRange=32
     )
 
-    # alternative parameters
-    # window_size = 3
-    # min_disp = 16
-    # num_disp = 128
-
-    # stereo = cv2.StereoSGBM_create(
-    #     minDisparity=min_disp,
-    #     numDisparities=num_disp,
-    #     blockSize=16,
-    #     P1=4*window_size**2,
-    #     P2=32*window_size**2,
-    #     disp12MaxDiff=1,
-    #     uniquenessRatio=10,
-    #     speckleWindowSize=100,
-    #     speckleRange=32
-    # )
-
-
     initial_position = np.array([0., 0., 0., 1.])
     initial_transform = np.matrix([
         [1., 0., 0., 0.],
@@ -93,6 +75,13 @@ if __name__ == '__main__':
     ])
 
     current_transform = initial_transform
+
+    cur_t = np.array([0.,0.,0.])
+    cur_rot = np.matrix([
+        [1., 0., 0.],
+        [0., 1., 0.],
+        [0., 0., 1.]
+    ])
 
     path = []
 
@@ -115,13 +104,6 @@ if __name__ == '__main__':
         ).astype(np.float32) / 16.0
 
         calibration_matrix = dataset.calib.K_cam0 # left gray camera (they're all the same here)
-
-        # Q = np.float32([
-        #     [1, 0, 0, -calibration_matrix[0, 2]],
-        #     [0,-1, 0,  calibration_matrix[1, 2]], # turn points 180 deg around x-axis,
-        #     [0, 0, 0, -calibration_matrix[0, 0]], # so that y-axis looks up
-        #     [0, 0, 1, 0]
-        # ])
 
         points = cv2.reprojectImageTo3D(disp, Q)
 
@@ -149,32 +131,20 @@ if __name__ == '__main__':
             now_3d_coords = points[now_pts_i[:, 1], now_pts_i[:, 0]]
             ret_R, ret_t = rigid_transform_3D(last_3d_coords[-50:], now_3d_coords[-50:])
 
-            out = np.concatenate((ret_R, np.matrix(ret_t).T), axis=1)
+            cur_t = cur_t + np.dot(cur_rot, ret_t)
+            cur_rot = np.dot(ret_R, cur_rot)
 
-            # retval, out, inliers = cv2.estimateAffine3D(
-            #     last_3d_coords,
-            #     now_3d_coords,
-            #     None,
-            #     None,
-            #     2
-            # )
+            current_transform = np.concatenate((cur_rot, cur_t.T), axis=1)
 
-            print('Det: {}'.format(np.linalg.det(out[:, :3])))
-
-            affine_transform = np.concatenate((out, [[0, 0, 0, 1]]))
             np.set_printoptions(suppress=True)
-            # print(affine_transform)
+            print('Det: {}'.format(np.linalg.det(current_transform[:, :3])))
 
-            current_transform = np.dot(affine_transform, current_transform)
             print(current_transform)
 
             print(real_poses[pose_index])
             pose_index += 1
 
-            new_position = np.dot(current_transform, initial_position)
-
-            path.append(new_position)
-            # print(new_position)
+            path.append(cur_t.reshape(-1, 3))
 
 
        
@@ -198,7 +168,7 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111, projection='3d')
     ax.set_aspect('equal')
 
-    np_path = np.array(path).reshape(-1, 4)
+    np_path = np.array(path).reshape(-1, 3)
 
     X = np_path[:, 0]
     Y = np_path[:, 1]
