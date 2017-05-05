@@ -17,6 +17,7 @@ from utils.camera_transform_guesser import rigid_transform_3D
 
 DEBUG_SIFT_3D = False
 DEBUG_STEREO_3D = False
+SET_FIRST_POSE = True
 
 if __name__ == '__main__':
     print('loading')
@@ -24,7 +25,7 @@ if __name__ == '__main__':
     dataset = pykitti.odometry(
         '/home/wolf/kitti/dataset',
         '00',
-        frame_range=range(0, 100, 2)
+        frame_range=range(85, 430, 3)
     )
 
     dataset.load_calib()
@@ -57,28 +58,6 @@ if __name__ == '__main__':
         ]),
         np.array([dist_b, 0, 0])
     )
-
-    stereo = cv2.StereoSGBM_create(
-        minDisparity=min_disp,
-        numDisparities=num_disp,
-        blockSize=16,
-        P1=8*3*window_size**2,
-        P2=32*3*window_size**2,
-        disp12MaxDiff=1,
-        uniquenessRatio=10,
-        speckleWindowSize=100,
-        speckleRange=32
-    )
-
-    initial_position = np.array([0., 0., 0., 1.])
-    initial_transform = np.matrix([
-        [1., 0., 0., 0.],
-        [0., 1., 0., 0.],
-        [0., 0., 1., 0.],
-        [0., 0., 0., 1.]
-    ])
-
-    current_transform = initial_transform
 
     cur_t = np.array([0.,0.,0.])
     cur_rot = np.matrix([
@@ -118,12 +97,13 @@ if __name__ == '__main__':
                 raise Exception('No essential matrix found')
             elif E.shape[0] > 3:
                 # more than one matrix found, just pick the first
+                print('We found multiple essential matrices')
                 E = E[0:3, 0:3]
 
             _, ret_R, ret_t, mask = cv2.recoverPose(
                 E,
-                now_pts,
                 last_pts,
+                now_pts,
                 cam
             )
 
@@ -152,22 +132,35 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111, projection='3d')
     ax.set_aspect('equal')
 
-    np_path = np.array(path).reshape(-1, 3)
+    real_path = np.dot(
+        np.dot(real_poses, [0,0,0,1]),
+        np.matrix([
+            [1., 0., 0., 0.],
+            [0.,-1., 0., 0.],
+            [0., 0.,-1., 0.],
+            [0., 0., 0., 1.]
+        ])
+    )
 
+    np_path = np.array(path).reshape(-1, 3)
+    
+    if SET_FIRST_POSE:
+        first_pose = dataset.T_w_cam0[dataset.frame_range[0]]
+        np_path = np.dot(np_path, first_pose[:3, :3])
+        np_path += real_path[0, :3]
+    
     X = np_path[:, 0]
     Y = np_path[:, 1]
     Z = np_path[:, 2]
 
-    real_path = np.dot(real_poses, [0,0,0,1])
+    ax.plot_wireframe(X, Y, Z, color='red')
 
-    ax.plot_wireframe(X, Y, Z)
-
-    RX = real_poses[:, 0]
-    RY = real_poses[:, 1]
-    RZ = real_poses[:, 2]
+    RX = real_path[:, 0]
+    RY = real_path[:, 1]
+    RZ = real_path[:, 2]
 
     # ax.plot_wireframe(RZ, RY, RX)
-    ax.plot_wireframe(RX, RY, RZ)
+    ax.plot_wireframe(RX, RY, RZ, color='blue')
 
     max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max() / 2.0
 
@@ -181,4 +174,4 @@ if __name__ == '__main__':
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
 
-    plt.show() 
+    plt.show()
