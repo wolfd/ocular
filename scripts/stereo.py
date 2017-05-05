@@ -8,53 +8,12 @@ import os
 
 import pykitti # version 0.1.2
 
-ply_header = '''ply
-format ascii 1.0
-element vertex %(vert_num)d
-property float x
-property float y
-property float z
-property uchar red
-property uchar green
-property uchar blue
-end_header
-'''
+import matplotlib.pyplot as plt
 
-def write_ply(fn, verts, gray):
-    verts = verts.reshape(-1, 3)
-    gray = gray.reshape(-1, 1)
-    verts = np.hstack([verts, gray, gray, gray])
-    with open(fn, 'wb') as f:
-        f.write((ply_header % dict(vert_num=len(verts))).encode('utf-8'))
-        np.savetxt(f, verts, fmt='%f %f %f %d %d %d ')
+from utils.ply_export import write_ply
+from utils.draw_sift_matches import draw_matches
 
-
-fast = cv2.FastFeatureDetector_create()
-
-def bucket_features(image, height, width, height_break, width_break, num_corners):
-    x_range = np.uint32(np.floor(np.linspace(0, width - width/width_break, width_break)))
-    y_range = np.uint32(np.floor(np.linspace(0, height - height/height_break, height_break)))
-
-    final_points = []
-
-    for y in y_range:
-        for x in x_range:
-            # roi = (x, y, x + width_break, y + height_break)
-            mask = np.zeros((width, height))
-            mask[x:(x + width_break), y:(y + height_break)] = 1
-
-            kp = fast.detect(image, mask)
-
-            # get best num_corners points
-            if len(kp) > 20:
-                kp = sorted(kp, key=lambda k: k.response)[-num_corners:]
-
-            final_points += kp
-
-
-    return np.float32(
-        [kp.pt for kp in final_points]
-    ).reshape(-1, 1, 2)
+DEBUG_SIFT = False
 
 sift = cv2.xfeatures2d.SIFT_create()
 
@@ -79,6 +38,13 @@ class SIFTImage(object):
             if m.distance < self.good_thresh * n.distance:
                 good_keypoints.append(m)
 
+        if DEBUG_SIFT:
+            draw_matches(
+                self.image, self.kp,
+                other.image, other.kp,
+                good_keypoints[-50:]
+            )
+        
         # put keypoints from own image in self_pts
         # transform the keypoint data into arrays for homography check
         # grab precomputed points
@@ -169,16 +135,16 @@ if __name__ == '__main__':
             now_pts_i = now_pts.astype(np.uint32)
 
 
-            out_points = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
-            out_gray = last_sift_left.image[last_pts_i[:, 1], last_pts_i[:, 0]]
-            out_file = 'out-sift-0.ply'
-            write_ply(out_file, out_points, out_gray)
+            # out_points = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
+            # out_gray = last_sift_left.image[last_pts_i[:, 1], last_pts_i[:, 0]]
+            # out_file = 'out-sift-0.ply'
+            # write_ply(out_file, out_points, out_gray)
 
 
-            out_points = points[now_pts_i[:, 1], now_pts_i[:, 0]]
-            out_gray = left[now_pts_i[:, 1], now_pts_i[:, 0]]
-            out_file = 'out-sift-1.ply'
-            write_ply(out_file, out_points, out_gray)
+            # out_points = points[now_pts_i[:, 1], now_pts_i[:, 0]]
+            # out_gray = left[now_pts_i[:, 1], now_pts_i[:, 0]]
+            # out_file = 'out-sift-1.ply'
+            # write_ply(out_file, out_points, out_gray)
 
             # get the 3D coordinates of the matched features
             last_3d_coords = last_points[last_pts_i[:, 1], last_pts_i[:, 0]]
@@ -186,8 +152,14 @@ if __name__ == '__main__':
 
             retval, out, inliers = cv2.estimateAffine3D(
                 last_3d_coords,
-                now_3d_coords
+                now_3d_coords,
+                None,
+                None,
+                2,
+
             )
+
+            print('Det: {}'.format(np.linalg.det(out[:, :3])))
 
             affine_transform = np.concatenate((out, [[0, 0, 0, 1]]))
 
@@ -198,8 +170,6 @@ if __name__ == '__main__':
             path.append(new_position)
             print(new_position)
 
-            break
-
 
        
 
@@ -207,23 +177,12 @@ if __name__ == '__main__':
         last_sift_left = sift_left
         last_sift_right = sift_right
         
-        mask = disp > disp.min()
-        out_points = points[mask]
-        out_gray = left[mask]
-        out_file = 'out.ply'
-        write_ply(out_file, out_points, out_gray)
+        # mask = disp > disp.min()
+        # out_points = points[mask]
+        # out_gray = left[mask]
+        # out_file = 'out.ply'
+        # write_ply(out_file, out_points, out_gray)
 
-
-
-
-        # features = bucket_features(left, left.shape[1], left.shape[0], 100, 100, 20)        # use OpenCV to calculate optical flow
-        # new_frame_matched_features, status, error = cv2.calcOpticalFlowPyrLK(
-        #     left,
-        #     right,
-        #     features,
-        #     None,
-        #     **self.lk_params
-        # )
 
     from mpl_toolkits.mplot3d import axes3d
     import matplotlib.pyplot as plt
