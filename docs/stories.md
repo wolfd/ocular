@@ -1,0 +1,37 @@
+Project Stories
+
+Monocular visual odometry (VO) refers to using a single camera to guess your position in the world around you. I aimed to get a working implementation of monocular VO done by the first version of the project. This ended up being an ambitious goal, since I have very little prior experience with computer vision. My biggest goal was to understand how one would implement a visual odometry system, and to understand some of the more complex math behind it.
+
+I ran into a number of problems that provided some valuable learning during the project. Early on I was attempting to use a Tango to stream data to a few ROS nodes that would then process the data part by part. Using a Tango might be a good idea for future iterations of this project, but it hindered my ability to work quickly when it mattered, as the data streaming from the Tango was not at a stable framerate. I used a ROS bag to speed up development, but because I was connected to the Tango over a USB network link, it was tethered to the laptop, giving me particularly difficult data to use for visual odometry. The specific problems with the data that I used originally were:
+
+ - Little movement in the frame (holding the Tango steady-ish)
+ - Too many similar corners (laptop was in view, edges of each key)
+ - Too much lateral movement
+ - Too much rotational movement without translation (if you’re trying to construct a 3D movement with a 5 or 7 point algorithm, and you don’t actually translate… not great)
+ - Not enough frames per second
+
+For the second iteration of the project, I decided to use the [KITTI dataset](http://www.cvlibs.net/datasets/kitti/), because it is proven to work, and has stereo camera data.
+
+I wanted to implement a stereo camera odometry pipeline for the second iteration because it was supposed to be easier, and I have a feeling it *actually* is easier, but in the end, I went back to monocular, because I had a better idea of how to get that working.
+
+With stereo cameras, you can very easily create a 3D reconstruction of the scene by analyzing the horizontal position differences of similar looking points, which is how our eyes work (neat!). With OpenCV, it’s a very simple process to do this.
+1. Use `StereoSGBM` to create a disparity map from the two images
+2. Pass the disparity map into `reprojectImageTo3D`, this gives you a matrix of coordinates, indexing into the matrix by pixel gives you the projected 3D coordinate relative to the camera
+3. Done!
+
+In order to take those points and get an estimate of your movement, you have to analyze matching points from the point cloud. I tried doing this with the project by using SIFT to analyze the left camera from frame to frame, pruning bad points, and passing the rest to a rigid transform algorithm. This did not work well. The poses were wildly inaccurate and were embarrassingly bad (huge twisting helix instead of going forward, jagged lines, etc.).
+
+My hypothesis is that I didn’t do enough pruning of the points. There’s a far wall that the reprojected image has, and my guess is that too many SIFT features ended up being on the “wall”, being very consistent, very wrong points, which would throw off any error correcting optimization.
+
+In the future, I would try to eliminate those points from being passed into the pose solving. Taking points that are only within a radius from the camera might be one way of doing that.
+
+At some point, before I had that idea, I decided to try monocular odometry again, because there seemed to be a more clear path to getting that to work. I found that it is pretty easy to get OpenCV to do most of the heavy lifting for you here as well.
+1. Use SIFT (or some other feature finding method) to get keypoints
+2. Match the points from frame to frame using your method of choice
+3. Use `findEssentialMat` from OpenCV to find the essential matrix (wow!)
+4. Pass that into `recoverPose`, also giving it the corresponding features from frame to frame and the camera matrix
+5. You now have the relative pose between frames, celebrate, and accumulate the pose
+
+This gets you somewhere, but the biggest problem with monocular odometry is scale, and this won’t solve that. Some examples I saw just gave up and used the KITTI dataset’s actual poses, just taking the distance between the *actual* poses and saying that’s how far each pose was from each other (they cheated).
+
+In my case, doing nothing to the poses worked pretty well, the method didn’t work that well for the longer stretches of road, and had a very different turn radius than what the real poses from KITTI implied, but I was surprised at how well it worked by default. I imagine that a different dataset would not have the same results.
