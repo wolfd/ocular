@@ -43,6 +43,7 @@ class OpticalFlowMatcher(object):
             self.fast = cv2.FastFeatureDetector_create()
 
             self.fast.setThreshold(20)
+
         elif feature_detector == 'GOOD':
             self.get_features = self.get_features_good
             # params for ShiTomasi 'GOOD' corner detection
