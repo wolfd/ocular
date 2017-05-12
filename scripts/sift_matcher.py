@@ -11,15 +11,14 @@ from cv_bridge import CvBridge
 from ocular.msg import KeypointMotion
 
 
-class OpticalFlowMatcher(object):
+class SIFTMatcher(object):
     """
-    Optical Flow Matcher for ROS image data
-    Reference: http://docs.opencv.org/3.2.0/d7/d8b/tutorial_py_lucas_kanade.html
+    SIFT Matcher for ROS image data
     """
-    def __init__(self, image_topic, feature_detector='FAST'):
-        super(OpticalFlowMatcher, self).__init__()
+    def __init__(self, image_topic, feature_detector='SIFT'):
+        super(SIFTMatcher, self).__init__()
 
-        rospy.init_node('optical_flow_matcher')
+        rospy.init_node('sift_matcher')
 
         self.cv_bridge = CvBridge()
 
@@ -43,7 +42,6 @@ class OpticalFlowMatcher(object):
             self.fast = cv2.FastFeatureDetector_create()
 
             self.fast.setThreshold(20)
-
         elif feature_detector == 'GOOD':
             self.get_features = self.get_features_good
             # params for ShiTomasi 'GOOD' corner detection
@@ -53,21 +51,13 @@ class OpticalFlowMatcher(object):
                 minDistance=7,
                 blockSize=7
             )
+        elif feature_detector == 'SIFT':
+            # OpenCV 3+
+            self.sift = cv2.xfeatures2d.SIFT_create()
         else:
             raise Exception(
                 '{} feature detector not implemented'.format(feature_detector)
             )
-
-        # Parameters for lucas kanade optical flow
-        self.lk_params = dict(
-            winSize=(15, 15),
-            maxLevel=2,
-            criteria=(
-                cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
-                10,
-                0.03
-            )
-        )
 
         self.last_frame_gray = None
         self.good_old = None
@@ -92,6 +82,35 @@ class OpticalFlowMatcher(object):
         if self.last_frame_gray is None:
             self.store_as_last_frame(frame_gray)
             return
+
+    def calculate_sift(self, last_frame, new_frame, last_kp=None):
+        # find corresponding points in the input image and the template image
+        bf = cv2.BFMatcher()
+        matches = bf.knnMatch(self.descs[k], scene_desc, k=2)
+
+        # Apply Lowe Ratio Test to the keypoints
+        # this should weed out unsure matches
+        good_keypoints = []
+        for m, n in matches:
+            if m.distance < self.good_thresh * n.distance:
+                good_keypoints.append(m)
+
+        # put keypoints from template image in template_pts
+        # transform the keypoint data into arrays for homography check
+        # grab precomputed points
+        template_pts = np.float32(
+            [self.kps[k][m.queryIdx].pt for m in good_keypoints]
+        ).reshape(-1, 1, 2)
+
+        # put corresponding keypoints from input image in scene_img_pts
+        scene_img_pts = np.float32(
+            [scene_kps[m.trainIdx].pt for m in good_keypoints]
+        ).reshape(-1, 1, 2)
+
+        # if we can't find any matching keypoints, bail
+        # (probably the scene image was nonexistant/real bad)
+        if scene_img_pts.shape[0] == 0:
+            return None
 
         # use OpenCV to calculate optical flow
         new_frame_matched_features, status, error = cv2.calcOpticalFlowPyrLK(
@@ -120,6 +139,12 @@ class OpticalFlowMatcher(object):
         self.last_frame_gray = frame_gray
         # we got to make sure that we have features too
         self.last_frame_features = self.get_features(frame_gray)
+
+    def get_features_sift(self, frame_gray):
+        kp, des = self.sift.detectAndCompute(frame_gray, None)
+
+        self.last_kp = kp
+        self.last_des = des
 
     def get_features_fast(self, frame_gray):
         """
@@ -209,7 +234,7 @@ class OpticalFlowMatcher(object):
             r.sleep()
 
 if __name__ == '__main__':
-    of_matcher = OpticalFlowMatcher(
+    of_matcher = SIFTMatcher(
         'tango/camera/fisheye_1/image_rect'
     )
 
