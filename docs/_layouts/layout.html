@@ -5,11 +5,11 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
     <meta name="author" content="Danny Wolf" />
     <title>{{ page.title }}</title>
-    <link rel="stylesheet" type="text/css" href="{{ site.baseurl }}/assets/css/style.css">
+    <link rel="stylesheet" type="text/css" href="{{ "/assets/css/style.css" | prepend: site.baseurl }}">
   </head>
-  <body>
+  <body class="wrapper">
     <header>
-      <h1><a href="/">{{ page.title }}</a></h1>
+      <h1><a href="{{ site.baseurl }}">{{ page.title }}</a></h1>
     </header>
     <section>
       {{ content }}
