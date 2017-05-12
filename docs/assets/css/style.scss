@@ -2,3 +2,8 @@
 ---
 
 @import "{{ site.theme }}";
+
+body {
+  /* lazy way of making my eyes happier */
+  max-width: calc(100vw - 2 * 50px);
+}
