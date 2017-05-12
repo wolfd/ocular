@@ -2,3 +2,5 @@ auto: true
 markdown: kramdown
 permalink: /:year/:month/:day/:title
 baseurl: /ocular
+
+theme: jekyll-theme-minimal
